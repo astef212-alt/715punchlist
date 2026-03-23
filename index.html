@@ -58,22 +58,7 @@
   td.thumb img { width:64px; height:64px; object-fit:cover; border-radius:6px; border:1px solid var(--border); cursor:pointer; transition:transform 0.2s; display:block; }
   td.thumb img:hover { transform:scale(1.06); }
   td.num { font-weight:500; color:var(--accent); width:24px; font-size:0.95rem; }
-  /* All editable cells */
-  .cell-edit {
-    font-family:"DM Mono",monospace;
-    font-size:0.78rem;
-    border:none;
-    background:transparent;
-    border-bottom:1px dashed var(--border);
-    padding:2px 4px;
-    color:var(--ink);
-    outline:none;
-    width:100%;
-    resize:none;
-    min-height:1.4em;
-    line-height:1.4;
-    overflow:hidden;
-  }
+  .cell-edit { font-family:"DM Mono",monospace; font-size:0.78rem; border:none; background:transparent; border-bottom:1px dashed var(--border); padding:2px 4px; color:var(--ink); outline:none; width:100%; resize:none; min-height:1.4em; line-height:1.4; overflow:hidden; }
   .cell-edit:focus { border-bottom-color:var(--ink); background:rgba(255,255,255,0.5); }
   .cell-edit::placeholder { color:var(--border); }
   td.col-location { width:110px; }
@@ -82,6 +67,9 @@
   td.col-notes { width:120px; }
   td.check { width:36px; text-align:center; }
   td.check input[type="checkbox"] { width:17px; height:17px; accent-color:var(--accent); cursor:pointer; }
+  td.trash { width:32px; text-align:center; }
+  .trash-btn { background:none; border:none; cursor:pointer; font-size:1rem; opacity:0.25; transition:opacity 0.2s, transform 0.2s; padding:4px; }
+  .trash-btn:hover { opacity:1; transform:scale(1.2); }
   .priority-select { font-family:"DM Mono",monospace; font-size:0.68rem; padding:3px 6px; border-radius:20px; border:1px solid; cursor:pointer; outline:none; font-weight:500; appearance:none; -webkit-appearance:none; text-align:center; min-width:88px; }
   .priority-select.high { background:#fdecea; color:var(--accent); border-color:#f5c6c2; }
   .priority-select.med  { background:#fff8e1; color:#b07b00; border-color:#ffe082; }
@@ -101,6 +89,7 @@
     .toolbar,.status-bar { display:none; }
     #lightbox { display:none !important; }
     .priority-select { border:none; background:none; }
+    td.trash { display:none; }
   }
 </style>
 </head>
@@ -122,7 +111,7 @@
 <table>
   <thead>
     <tr>
-      <th>#</th><th>Photo</th><th>Location</th><th>Issue</th><th>Work Required</th><th>Notes</th><th>Priority</th><th>✓</th>
+      <th>#</th><th>Photo</th><th>Location</th><th>Issue</th><th>Work Required</th><th>Notes</th><th>Priority</th><th>✓</th><th></th>
     </tr>
   </thead>
   <tbody id="tbody"></tbody>
@@ -165,47 +154,61 @@ const defaultItems = [
 
 let state = {
   property:"", gc:"",
-  items: defaultItems.map(item => ({ location:"", issue:item.issue, work:item.work, notes:"", done:false, priority:item.priority }))
+  items: defaultItems.map(item => ({ location:"", issue:item.issue, work:item.work, notes:"", done:false, priority:item.priority, deleted:false }))
 };
 
+const SAVE_DELAY = 3000; // 3 seconds — enough time to actually type
 let saveTimer = null;
+let isRemoteUpdate = false;
+
 function scheduleSave() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => { if(window._fbSave) window._fbSave(state); }, 800);
+  saveTimer = setTimeout(() => { if(window._fbSave) window._fbSave(state); }, SAVE_DELAY);
 }
 
 function applyState(data) {
   if (!data) return;
+  isRemoteUpdate = true;
   if (data.property !== undefined) { state.property=data.property; document.getElementById("meta-property").value=data.property; }
   if (data.gc !== undefined) { state.gc=data.gc; document.getElementById("meta-gc").value=data.gc; }
   if (data.items) {
+    // Extend state.items if Firebase has more
+    while (state.items.length < data.items.length) {
+      const i = state.items.length;
+      state.items.push({ location:"", issue:"", work:"", notes:"", done:false, priority:"med", deleted:false });
+    }
     data.items.forEach((s,i) => {
       if (!state.items[i]) return;
       state.items[i].location = s.location||"";
-      state.items[i].issue    = s.issue    !== undefined ? s.issue    : defaultItems[i].issue;
-      state.items[i].work     = s.work     !== undefined ? s.work     : defaultItems[i].work;
+      state.items[i].issue    = s.issue    !== undefined ? s.issue    : (defaultItems[i]||{}).issue||"";
+      state.items[i].work     = s.work     !== undefined ? s.work     : (defaultItems[i]||{}).work||"";
       state.items[i].notes    = s.notes||"";
       state.items[i].done     = s.done||false;
-      state.items[i].priority = s.priority || defaultItems[i].priority;
+      state.items[i].priority = s.priority || (defaultItems[i]||{priority:"med"}).priority;
+      state.items[i].deleted  = s.deleted||false;
     });
   }
   render();
+  isRemoteUpdate = false;
 }
 
-function esc(str) { return (str||"").replace(/"/g,"&quot;").replace(/</g,"&lt;"); }
+function esc(str) { return (str||"").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;"); }
 
 function render() {
   const tbody = document.getElementById("tbody");
   tbody.innerHTML = "";
-  defaultItems.forEach((item,i) => {
-    const s = state.items[i];
-    const p = s.priority || item.priority;
+  let rowNum = 0;
+  state.items.forEach((s, i) => {
+    if (s.deleted) return;
+    rowNum++;
+    const p = s.priority || "med";
+    const imgKey = (defaultItems[i]||{}).imgKey || "";
     const tr = document.createElement("tr");
-    tr.id = "row-"+item.id;
+    tr.id = "row-"+i;
     if (s.done) tr.classList.add("done");
     tr.innerHTML = `
-      <td class="num">${item.id}</td>
-      <td class="thumb"><img src="${images[item.imgKey]}" alt="Issue ${item.id}" onclick="openLightbox('${item.imgKey}')"></td>
+      <td class="num">${rowNum}</td>
+      <td class="thumb">${imgKey && images[imgKey] ? `<img src="${images[imgKey]}" alt="Issue ${rowNum}" onclick="openLightbox('${imgKey}')">` : "—"}</td>
       <td class="col-location"><textarea class="cell-edit" rows="1" placeholder="Room..." oninput="autoResize(this); state.items[${i}].location=this.value; scheduleSave();">${esc(s.location)}</textarea></td>
       <td class="col-issue"><textarea class="cell-edit" rows="2" oninput="autoResize(this); state.items[${i}].issue=this.value; scheduleSave();">${esc(s.issue)}</textarea></td>
       <td class="col-work"><textarea class="cell-edit" rows="2" oninput="autoResize(this); state.items[${i}].work=this.value; scheduleSave();">${esc(s.work)}</textarea></td>
@@ -218,6 +221,7 @@ function render() {
         </select>
       </td>
       <td class="check"><input type="checkbox" ${s.done?"checked":""} onchange="toggleDone(${i},this.checked)"></td>
+      <td class="trash"><button class="trash-btn" onclick="deleteRow(${i})" title="Delete">🗑</button></td>
     `;
     tbody.appendChild(tr);
   });
@@ -229,6 +233,13 @@ function autoResize(el) {
   el.style.height = el.scrollHeight + "px";
 }
 
+function deleteRow(i) {
+  if (!confirm("Delete this item?")) return;
+  state.items[i].deleted = true;
+  if (window._fbSave) window._fbSave(state);
+  render();
+}
+
 function updatePriority(i, val, el) {
   state.items[i].priority = val;
   el.className = "priority-select " + val;
@@ -237,15 +248,16 @@ function updatePriority(i, val, el) {
 
 function toggleDone(i, checked) {
   state.items[i].done = checked;
-  document.getElementById("row-"+defaultItems[i].id).classList.toggle("done", checked);
+  document.getElementById("row-"+i).classList.toggle("done", checked);
   updateProgress();
   scheduleSave();
 }
 
 function updateProgress() {
-  const done = state.items.filter(x=>x.done).length;
-  const total = state.items.length;
-  document.getElementById("progressFill").style.width = Math.round(done/total*100)+"%";
+  const active = state.items.filter(x=>!x.deleted);
+  const done = active.filter(x=>x.done).length;
+  const total = active.length;
+  document.getElementById("progressFill").style.width = total ? Math.round(done/total*100)+"%" : "0%";
   document.getElementById("progressLabel").textContent = `${done} of ${total} items complete`;
 }
 
@@ -258,9 +270,11 @@ document.getElementById("lightbox").addEventListener("click", e => { if(e.target
 
 function exportCSV() {
   const rows = [["#","Location","Issue","Work Required","Notes","Priority","Done"]];
-  defaultItems.forEach((item,i) => {
-    const s = state.items[i];
-    rows.push([item.id, s.location||"", s.issue||"", s.work||"", s.notes||"", s.priority, s.done?"Yes":"No"]);
+  let n = 0;
+  state.items.forEach((s) => {
+    if (s.deleted) return;
+    n++;
+    rows.push([n, s.location||"", s.issue||"", s.work||"", s.notes||"", s.priority, s.done?"Yes":"No"]);
   });
   const csv = rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
   const a = document.createElement("a"); a.href="data:text/csv,"+encodeURIComponent(csv); a.download="punch_list.csv"; a.click();
@@ -268,7 +282,7 @@ function exportCSV() {
 
 function resetAll() {
   if (!confirm("Reset all data? This will clear Firebase too.")) return;
-  state = { property:"", gc:"", items: defaultItems.map(item=>({location:"", issue:item.issue, work:item.work, notes:"", done:false, priority:item.priority})) };
+  state = { property:"", gc:"", items: defaultItems.map(item=>({location:"", issue:item.issue, work:item.work, notes:"", done:false, priority:item.priority, deleted:false})) };
   document.getElementById("meta-property").value="";
   document.getElementById("meta-gc").value="";
   if(window._fbSave) window._fbSave(state);
