@@ -57,6 +57,7 @@
   td.thumb { width:76px; padding:6px; }
   td.thumb img { width:64px; height:64px; object-fit:cover; border-radius:6px; border:1px solid var(--border); cursor:pointer; transition:transform 0.2s; display:block; }
   td.thumb img:hover { transform:scale(1.06); }
+  td.thumb .no-photo { width:64px; height:64px; border-radius:6px; border:1px dashed var(--border); display:flex; align-items:center; justify-content:center; font-size:1.4rem; color:var(--border); cursor:default; }
   td.num { font-weight:500; color:var(--accent); width:24px; font-size:0.95rem; }
   .cell-edit { font-family:"DM Mono",monospace; font-size:0.78rem; border:none; background:transparent; border-bottom:1px dashed var(--border); padding:2px 4px; color:var(--ink); outline:none; width:100%; resize:none; min-height:1.4em; line-height:1.4; overflow:hidden; }
   .cell-edit:focus { border-bottom-color:var(--ink); background:rgba(255,255,255,0.5); }
@@ -74,6 +75,36 @@
   .priority-select.high { background:#fdecea; color:var(--accent); border-color:#f5c6c2; }
   .priority-select.med  { background:#fff8e1; color:#b07b00; border-color:#ffe082; }
   .priority-select.low  { background:#e8f5e9; color:#2e7d32; border-color:#a5d6a7; }
+
+  /* Add Item Modal */
+  .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:500; align-items:center; justify-content:center; padding:20px; }
+  .modal-overlay.open { display:flex; }
+  .modal { background:var(--paper); border:2px solid var(--ink); padding:28px; max-width:520px; width:100%; }
+  .modal h2 { font-family:"DM Serif Display",serif; font-size:1.4rem; margin-bottom:20px; }
+  .modal-field { margin-bottom:14px; }
+  .modal-field label { display:block; font-size:0.68rem; text-transform:uppercase; letter-spacing:1px; color:var(--muted); margin-bottom:4px; }
+  .modal-field input, .modal-field textarea, .modal-field select {
+    font-family:"DM Mono",monospace; font-size:0.82rem; width:100%; border:none;
+    border-bottom:1px solid var(--border); background:transparent; color:var(--ink);
+    padding:4px; outline:none; resize:vertical;
+  }
+  .modal-field input:focus, .modal-field textarea:focus { border-bottom-color:var(--ink); }
+  .modal-field select { appearance:none; cursor:pointer; }
+  .photo-preview { width:80px; height:80px; object-fit:cover; border-radius:6px; border:1px solid var(--border); margin-top:8px; display:none; }
+  .photo-upload-label { display:inline-block; margin-top:6px; padding:6px 14px; border:1px dashed var(--border); font-size:0.75rem; cursor:pointer; color:var(--muted); transition:all 0.2s; }
+  .photo-upload-label:hover { border-color:var(--ink); color:var(--ink); }
+  .modal-actions { display:flex; gap:10px; margin-top:20px; }
+  .modal-actions button { font-family:"DM Mono",monospace; font-size:0.78rem; padding:9px 18px; border:2px solid var(--ink); cursor:pointer; letter-spacing:1px; text-transform:uppercase; transition:all 0.2s; }
+  .modal-actions .btn-add { background:var(--ink); color:var(--paper); }
+  .modal-actions .btn-add:hover { background:var(--accent); border-color:var(--accent); }
+  .modal-actions .btn-cancel { background:transparent; color:var(--ink); }
+  .modal-actions .btn-cancel:hover { background:var(--border); }
+
+  /* Add row button */
+  .add-row-wrap { max-width:1050px; margin:12px auto 0; }
+  .add-row-btn { font-family:"DM Mono",monospace; font-size:0.78rem; padding:8px 16px; border:1px dashed var(--border); background:transparent; color:var(--muted); cursor:pointer; transition:all 0.2s; letter-spacing:1px; }
+  .add-row-btn:hover { border-color:var(--ink); color:var(--ink); background:rgba(0,0,0,0.02); }
+
   #lightbox { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:999; align-items:center; justify-content:center; }
   #lightbox.open { display:flex; }
   #lightbox img { max-width:90vw; max-height:90vh; border-radius:8px; }
@@ -86,7 +117,7 @@
   .save-indicator { font-size:0.72rem; color:var(--muted); margin-left:8px; transition:opacity 0.5s; opacity:0; }
   @media print {
     body { background:white; padding:16px; }
-    .toolbar,.status-bar { display:none; }
+    .toolbar,.status-bar,.add-row-wrap { display:none; }
     #lightbox { display:none !important; }
     .priority-select { border:none; background:none; }
     td.trash { display:none; }
@@ -117,11 +148,57 @@
   <tbody id="tbody"></tbody>
 </table>
 
+<div class="add-row-wrap">
+  <button class="add-row-btn" onclick="openModal()">+ Add Item</button>
+</div>
+
 <div class="toolbar">
   <button class="btn" onclick="window.print()">🖨 Print / PDF</button>
   <button class="btn outline" onclick="exportCSV()">↓ CSV</button>
   <button class="btn outline" onclick="resetAll()">✕ Reset</button>
   <span class="save-indicator" id="saveIndicator"></span>
+</div>
+
+<!-- Add Item Modal -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <h2>Add Item</h2>
+    <div class="modal-field">
+      <label>Photo</label>
+      <label class="photo-upload-label" for="newPhotoInput">📷 Choose photo...</label>
+      <input type="file" id="newPhotoInput" accept="image/*" style="display:none" onchange="previewPhoto(this)">
+      <br>
+      <img id="newPhotoPreview" class="photo-preview" alt="Preview">
+    </div>
+    <div class="modal-field">
+      <label>Location / Room</label>
+      <input type="text" id="newLocation" placeholder="e.g. Master Bedroom">
+    </div>
+    <div class="modal-field">
+      <label>Issue</label>
+      <textarea id="newIssue" rows="2" placeholder="Describe the problem..."></textarea>
+    </div>
+    <div class="modal-field">
+      <label>Work Required</label>
+      <textarea id="newWork" rows="2" placeholder="What needs to be done..."></textarea>
+    </div>
+    <div class="modal-field">
+      <label>Notes</label>
+      <input type="text" id="newNotes" placeholder="Optional notes...">
+    </div>
+    <div class="modal-field">
+      <label>Priority</label>
+      <select id="newPriority">
+        <option value="high">🔴 High</option>
+        <option value="med" selected>🟡 Medium</option>
+        <option value="low">🟢 Low</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-add" onclick="addItem()">Add to List</button>
+      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>
 </div>
 
 <div id="lightbox">
@@ -148,18 +225,17 @@ const defaultItems = [
   { id:5,  imgKey:"img5new", issue:"Large open ceiling cutout — unsealed square hole, no cover plate (HVAC/electrical)",        work:"Install correct cover plate or patch and paint if decommissioned",       priority:"high" },
   { id:6,  imgKey:"img5new", issue:"Two small open cutouts on sloped ceiling — missing cover plates, components exposed",       work:"Install cover plates on both openings",                                  priority:"high" },
   { id:7,  imgKey:"img5new", issue:"Open wall electrical/data box — no cover plate installed",                                  work:"Install appropriate cover plate",                                        priority:"med"  },
-  { id:8,  imgKey:"img6new", issue:"Paint cracking/peeling along full length of door jamb at hinge side",                      work:"Scrape, sand, prime, repaint door jamb and door stop molding",           priority:"med"  },
-  { id:9,  imgKey:"img6new", issue:"Crack/gap along top edge of door panel",                                                   work:"Fill crack, sand, repaint door panel",                                   priority:"low"  }
+  { id:8,  imgKey:"img6new", issue:"Paint cracking/peeling along full length of door jamb at hinge side",                      work:"Scrape, sand, prime, repaint door jamb and door stop molding",           priority:"med"  }
 ];
 
 let state = {
   property:"", gc:"",
-  items: defaultItems.map(item => ({ location:"", issue:item.issue, work:item.work, notes:"", done:false, priority:item.priority, deleted:false }))
+  items: defaultItems.map(item => ({ location:"", issue:item.issue, work:item.work, notes:"", done:false, priority:item.priority, deleted:false, imgData:"", imgKey:item.imgKey }))
 };
 
-const SAVE_DELAY = 3000; // 3 seconds — enough time to actually type
+let newPhotoData = "";
+const SAVE_DELAY = 3000;
 let saveTimer = null;
-let isRemoteUpdate = false;
 
 function scheduleSave() {
   clearTimeout(saveTimer);
@@ -168,14 +244,11 @@ function scheduleSave() {
 
 function applyState(data) {
   if (!data) return;
-  isRemoteUpdate = true;
   if (data.property !== undefined) { state.property=data.property; document.getElementById("meta-property").value=data.property; }
   if (data.gc !== undefined) { state.gc=data.gc; document.getElementById("meta-gc").value=data.gc; }
   if (data.items) {
-    // Extend state.items if Firebase has more
     while (state.items.length < data.items.length) {
-      const i = state.items.length;
-      state.items.push({ location:"", issue:"", work:"", notes:"", done:false, priority:"med", deleted:false });
+      state.items.push({ location:"", issue:"", work:"", notes:"", done:false, priority:"med", deleted:false, imgData:"", imgKey:"" });
     }
     data.items.forEach((s,i) => {
       if (!state.items[i]) return;
@@ -186,13 +259,20 @@ function applyState(data) {
       state.items[i].done     = s.done||false;
       state.items[i].priority = s.priority || (defaultItems[i]||{priority:"med"}).priority;
       state.items[i].deleted  = s.deleted||false;
+      state.items[i].imgData  = s.imgData||"";
+      state.items[i].imgKey   = s.imgKey || (defaultItems[i]||{}).imgKey||"";
     });
   }
   render();
-  isRemoteUpdate = false;
 }
 
 function esc(str) { return (str||"").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;"); }
+
+function getThumbSrc(s) {
+  if (s.imgData) return s.imgData;
+  if (s.imgKey && images[s.imgKey]) return images[s.imgKey];
+  return "";
+}
 
 function render() {
   const tbody = document.getElementById("tbody");
@@ -202,13 +282,16 @@ function render() {
     if (s.deleted) return;
     rowNum++;
     const p = s.priority || "med";
-    const imgKey = (defaultItems[i]||{}).imgKey || "";
+    const thumbSrc = getThumbSrc(s);
+    const thumbHtml = thumbSrc
+      ? `<img src="${thumbSrc}" alt="Issue ${rowNum}" onclick="openLightbox('',${i})">`
+      : `<div class="no-photo">📷</div>`;
     const tr = document.createElement("tr");
     tr.id = "row-"+i;
     if (s.done) tr.classList.add("done");
     tr.innerHTML = `
       <td class="num">${rowNum}</td>
-      <td class="thumb">${imgKey && images[imgKey] ? `<img src="${images[imgKey]}" alt="Issue ${rowNum}" onclick="openLightbox('${imgKey}')">` : "—"}</td>
+      <td class="thumb">${thumbHtml}</td>
       <td class="col-location"><textarea class="cell-edit" rows="1" placeholder="Room..." oninput="autoResize(this); state.items[${i}].location=this.value; scheduleSave();">${esc(s.location)}</textarea></td>
       <td class="col-issue"><textarea class="cell-edit" rows="2" oninput="autoResize(this); state.items[${i}].issue=this.value; scheduleSave();">${esc(s.issue)}</textarea></td>
       <td class="col-work"><textarea class="cell-edit" rows="2" oninput="autoResize(this); state.items[${i}].work=this.value; scheduleSave();">${esc(s.work)}</textarea></td>
@@ -228,9 +311,57 @@ function render() {
   updateProgress();
 }
 
-function autoResize(el) {
-  el.style.height = "auto";
-  el.style.height = el.scrollHeight + "px";
+function autoResize(el) { el.style.height="auto"; el.style.height=el.scrollHeight+"px"; }
+
+function openModal() {
+  newPhotoData = "";
+  document.getElementById("newLocation").value="";
+  document.getElementById("newIssue").value="";
+  document.getElementById("newWork").value="";
+  document.getElementById("newNotes").value="";
+  document.getElementById("newPriority").value="med";
+  document.getElementById("newPhotoPreview").style.display="none";
+  document.getElementById("newPhotoInput").value="";
+  document.getElementById("modalOverlay").classList.add("open");
+}
+
+function closeModal() { document.getElementById("modalOverlay").classList.remove("open"); }
+
+document.getElementById("modalOverlay").addEventListener("click", function(e) {
+  if (e.target === this) closeModal();
+});
+
+function previewPhoto(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    newPhotoData = e.target.result;
+    const preview = document.getElementById("newPhotoPreview");
+    preview.src = newPhotoData;
+    preview.style.display = "block";
+  };
+  reader.readAsDataURL(file);
+}
+
+function addItem() {
+  const issue = document.getElementById("newIssue").value.trim();
+  if (!issue) { alert("Please enter an issue description."); return; }
+  const newItem = {
+    location: document.getElementById("newLocation").value.trim(),
+    issue: issue,
+    work: document.getElementById("newWork").value.trim(),
+    notes: document.getElementById("newNotes").value.trim(),
+    priority: document.getElementById("newPriority").value,
+    done: false,
+    deleted: false,
+    imgData: newPhotoData,
+    imgKey: ""
+  };
+  state.items.push(newItem);
+  if (window._fbSave) window._fbSave(state);
+  closeModal();
+  render();
 }
 
 function deleteRow(i) {
@@ -261,8 +392,10 @@ function updateProgress() {
   document.getElementById("progressLabel").textContent = `${done} of ${total} items complete`;
 }
 
-function openLightbox(key) {
-  document.getElementById("lightbox-img").src = images[key];
+function openLightbox(key, idx) {
+  const src = idx !== undefined ? getThumbSrc(state.items[idx]) : (images[key]||"");
+  if (!src) return;
+  document.getElementById("lightbox-img").src = src;
   document.getElementById("lightbox").classList.add("open");
 }
 function closeLightbox() { document.getElementById("lightbox").classList.remove("open"); }
@@ -282,7 +415,7 @@ function exportCSV() {
 
 function resetAll() {
   if (!confirm("Reset all data? This will clear Firebase too.")) return;
-  state = { property:"", gc:"", items: defaultItems.map(item=>({location:"", issue:item.issue, work:item.work, notes:"", done:false, priority:item.priority, deleted:false})) };
+  state = { property:"", gc:"", items: defaultItems.map(item=>({location:"", issue:item.issue, work:item.work, notes:"", done:false, priority:item.priority, deleted:false, imgData:"", imgKey:item.imgKey})) };
   document.getElementById("meta-property").value="";
   document.getElementById("meta-gc").value="";
   if(window._fbSave) window._fbSave(state);
